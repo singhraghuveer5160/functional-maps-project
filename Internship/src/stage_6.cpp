@@ -1,0 +1,235 @@
+#include <igl/readOBJ.h>
+#include <igl/opengl/glfw/Viewer.h>
+
+#include <Eigen/Core>
+
+#include <fstream>
+#include <iostream>
+#include <vector>
+#include <cstdlib>
+#include <ctime>
+#include <set>
+#include <limits>
+#include <cmath>
+
+using namespace std;
+
+Eigen::MatrixXd V1, V2;
+Eigen::MatrixXi F1, F2;
+
+//------------------------------------------------------------
+// Landmark vertices on CAT
+//------------------------------------------------------------
+
+vector<int> selected;
+
+
+//------------------------------------------------------------
+// Correspondence loaded from Stage 5
+//------------------------------------------------------------
+
+vector<int> correspondence;
+
+//------------------------------------------------------------
+// Farthest Point Sampling
+//------------------------------------------------------------
+
+std::vector<int> farthestPointSampling(
+    const Eigen::MatrixXd& V,
+    int numPoints)
+{
+    std::vector<int> selected;
+
+    std::vector<double> minDist(
+        V.rows(),
+        std::numeric_limits<double>::max());
+
+    // Start with first vertex
+    selected.push_back(0);
+
+    for(int k = 1; k < numPoints; k++)
+    {
+        int last = selected.back();
+
+        for(int i = 0; i < V.rows(); i++)
+        {
+            double d =
+                (V.row(i) - V.row(last)).squaredNorm();
+
+            if(d < minDist[i])
+                minDist[i] = d;
+        }
+
+        double best = -1.0;
+        int bestIndex = 0;
+
+        for(int i = 0; i < V.rows(); i++)
+        {
+            if(minDist[i] > best)
+            {
+                best = minDist[i];
+                bestIndex = i;
+            }
+        }
+
+        selected.push_back(bestIndex);
+    }
+
+    return selected;
+}
+
+
+int main()
+{
+    //--------------------------------------------------------
+    // Load meshes
+    //--------------------------------------------------------
+
+    if (!igl::readOBJ("cat-reference.obj", V1, F1))
+    {
+        cout << "Cannot load cat\n";
+        return 0;
+    }
+
+    if (!igl::readOBJ("lion-reference.obj", V2, F2))
+    {
+        cout << "Cannot load lion\n";
+        return 0;
+    }
+
+    //--------------------------------------------------------
+    // Shift meshes apart
+    //--------------------------------------------------------
+
+    V1.col(0).array() += 1.0;
+    V2.col(0).array() += 1.5;
+
+     ifstream fin("vertex_correspondence.txt");
+
+    if(!fin)
+    {
+        cout<<"Cannot open vertex_correspondence.txt"<<endl;
+        return 0;
+    }
+
+    int catVertex;
+    int lionVertex;
+
+    while(fin >> catVertex >> lionVertex)
+    {
+        correspondence.push_back(lionVertex);
+    }
+
+    cout<<"Loaded "
+        <<correspondence.size()
+        <<" correspondences"<<endl;
+
+       //--------------------------------------------------------
+// Select 50 random vertices
+//--------------------------------------------------------
+
+//--------------------------------------------------------
+// Select 50 well-distributed vertices
+//--------------------------------------------------------
+
+std::vector<int> selected =
+    farthestPointSampling(V1, 50);
+
+            //--------------------------------------------------------
+    // Create landmark point matrices
+    //--------------------------------------------------------
+
+    Eigen::MatrixXd catPoints(
+        selected.size(),
+        3);
+
+    Eigen::MatrixXd lionPoints(
+       selected.size(),
+        3);
+
+    for(int i=0;i<(int)selected.size();i++)
+    {
+        int catIndex = selected[i];
+
+        if(catIndex >= correspondence.size())
+            continue;
+
+        int lionIndex =
+            correspondence[catIndex];
+
+        catPoints.row(i) =
+            V1.row(catIndex);
+
+        lionPoints.row(i) =
+            V2.row(lionIndex);
+    }
+
+    //--------------------------------------------------------
+    // Create Viewer
+    //--------------------------------------------------------
+
+    igl::opengl::glfw::Viewer viewer;
+
+    //--------------------------------------------------------
+    // CAT
+    //--------------------------------------------------------
+
+    viewer.data().set_mesh(
+        V1,
+        F1);
+
+    viewer.data().add_points(
+        catPoints,
+        Eigen::RowVector3d(1,0,0));
+
+    viewer.data().point_size = 20;
+
+    //--------------------------------------------------------
+    // LION
+    //--------------------------------------------------------
+
+    viewer.append_mesh();
+
+    viewer.data(1).set_mesh(
+        V2,
+        F2);
+
+    viewer.data(1).add_points(
+        lionPoints,
+        Eigen::RowVector3d(1,0,0));
+
+    viewer.data(1).point_size = 20;
+
+    //--------------------------------------------------------
+    // Draw correspondence lines
+    //--------------------------------------------------------
+
+    for (int i = 0;i < V1.rows();i++)
+    {
+        int j = correspondence[i];
+
+        viewer.data().add_edges(
+            V1.row(i),
+            V2.row(j),
+            Eigen::RowVector3d(0, 1, 0));
+    }
+
+        //--------------------------------------------------------
+    // Viewer Settings
+    //--------------------------------------------------------
+
+    viewer.core().align_camera_center(V1, F1);
+
+    cout << "\n======================================" << endl;
+    cout << " Landmark Correspondence Visualization " << endl;
+    cout << "======================================" << endl;
+    cout << "Red Points   : Landmark vertices" << endl;
+    cout << "Green Lines  : Computed correspondence" << endl;
+    cout << "======================================" << endl;
+
+    viewer.launch();
+
+    return 0;
+}
+
+    
